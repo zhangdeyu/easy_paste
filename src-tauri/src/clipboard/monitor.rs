@@ -1,17 +1,21 @@
 use arboard::Clipboard;
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
+
+use crate::database::models::{ClipboardItem, ContentType, Database};
 
 pub struct ClipboardMonitor {
     running: Arc<AtomicBool>,
 }
 
 impl ClipboardMonitor {
-    pub fn start(app_handle: AppHandle) -> Self {
+    pub fn start(app_handle: AppHandle, db: Arc<Database>) -> Self {
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
@@ -25,7 +29,15 @@ impl ClipboardMonitor {
                         let hash = Self::hash_content(&text);
                         if last_hash.as_ref() != Some(&hash) && !text.is_empty() {
                             last_hash = Some(hash.clone());
-                            app_handle.emit("clipboard-changed", &text).ok();
+
+                            // Save to database
+                            let item = Self::create_text_item(&text);
+                            if let Err(e) = db.insert(&item) {
+                                eprintln!("Failed to save clipboard item: {}", e);
+                            }
+
+                            // Emit event to frontend
+                            app_handle.emit("clipboard-changed", &item).ok();
                         }
                     }
                 }
@@ -44,6 +56,19 @@ impl ClipboardMonitor {
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
         format!("{:x}", hasher.finalize())
+    }
+
+    fn create_text_item(text: &str) -> ClipboardItem {
+        let preview: String = text.chars().take(100).collect();
+        ClipboardItem {
+            id: Uuid::new_v4().to_string(),
+            content_type: ContentType::Text,
+            text_content: Some(text.to_string()),
+            image_data: None,
+            preview,
+            is_favorite: false,
+            created_at: Utc::now().timestamp(),
+        }
     }
 }
 

@@ -4,6 +4,7 @@ mod database;
 
 use clipboard::ClipboardMonitor;
 use database::models::Database;
+use std::sync::Arc;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,12 +15,12 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir().expect("Failed to get app data dir");
 
             // Initialize database
-            let db = Database::new(&app_data_dir).expect("Failed to initialize database");
-            app.manage(db);
+            let db = Arc::new(Database::new(&app_data_dir).expect("Failed to initialize database"));
+            app.manage(db.clone());
 
-            // Start clipboard monitor
+            // Start clipboard monitor with database reference
             let app_handle = app.handle().clone();
-            let _monitor = ClipboardMonitor::start(app_handle);
+            let _monitor = ClipboardMonitor::start(app_handle, db);
 
             Ok(())
         })
