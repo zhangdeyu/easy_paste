@@ -6,11 +6,25 @@ export function useClipboardListener(callback: (item: ClipboardItem) => void) {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
+  // Track if listener is already set up (prevents double registration in StrictMode)
+  const listenerRef = useRef<UnlistenFn | null>(null);
+  const isSettingUp = useRef(false);
+
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    // Prevent double setup in React StrictMode
+    if (isSettingUp.current || listenerRef.current) {
+      return;
+    }
+
+    isSettingUp.current = true;
 
     const setupListener = async () => {
-      unlisten = await listen<ClipboardItem>('clipboard-changed', (event) => {
+      // Double check before setting up
+      if (listenerRef.current) {
+        return;
+      }
+
+      listenerRef.current = await listen<ClipboardItem>('clipboard-changed', (event) => {
         callbackRef.current(event.payload);
       });
     };
@@ -18,9 +32,11 @@ export function useClipboardListener(callback: (item: ClipboardItem) => void) {
     setupListener();
 
     return () => {
-      if (unlisten) {
-        unlisten();
+      if (listenerRef.current) {
+        listenerRef.current();
+        listenerRef.current = null;
       }
+      isSettingUp.current = false;
     };
   }, []);
 }

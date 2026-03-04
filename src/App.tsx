@@ -92,7 +92,7 @@ function App() {
                   <div className="flex-1 min-w-0">
                     {renderPreview(item)}
                     <p className="text-xs text-muted-foreground mt-1">
-                      {formatTime(item.created_at)}
+                      {formatTime(item.updated_at)}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -64,7 +64,15 @@ export function useHistory(limit: number = 100) {
   }, []);
 
   const addItem = useCallback((item: ClipboardItem) => {
-    setItems((prev) => [item, ...prev]);
+    setItems((prev) => {
+      // Check if item already exists to prevent duplicates
+      const exists = prev.some((existing) => existing.id === item.id);
+      if (exists) {
+        // Move to top if already exists
+        return [item, ...prev.filter((existing) => existing.id !== item.id)];
+      }
+      return [item, ...prev];
+    });
   }, []);
 
   return {
