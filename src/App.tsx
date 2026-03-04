@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Settings } from '@/components/Settings';
 import type { ClipboardItem } from '@/types/clipboard';
 
 function App() {
   const [searchQuery, setSearchQuery] = useState('');
-  const { items, isLoading, search, toggleFavorite, deleteItem, addItem } = useHistory();
+  const { items, isLoading, search, toggleFavorite, deleteItem, addItem, refresh } = useHistory();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Listen for clipboard changes - backend now saves to DB and sends ClipboardItem
@@ -52,11 +53,18 @@ function App() {
     return <p className="text-sm truncate">{item.preview}</p>;
   };
 
+  const handleClearHistory = () => {
+    refresh();
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <h1 className="text-lg font-semibold mb-3">Easy Paste</h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-lg font-semibold">Easy Paste</h1>
+          <Settings onClearHistory={handleClearHistory} />
+        </div>
         <Input
           placeholder="Search clipboard history..."
           value={searchQuery}
