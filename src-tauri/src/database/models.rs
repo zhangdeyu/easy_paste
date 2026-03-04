@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardItem {
@@ -15,6 +14,7 @@ pub struct ClipboardItem {
     pub preview: String,
     pub is_favorite: bool,
     pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,8 +52,8 @@ pub enum DatabaseError {
 pub enum InsertResult {
     /// New item was inserted
     Inserted(ClipboardItem),
-    /// Existing item was updated (timestamp changed)
-    Updated(String), // existing item ID
+    /// Existing item was updated (updated_at changed)
+    Updated(ClipboardItem),
 }
 
 pub struct Database {
@@ -66,6 +66,7 @@ impl Database {
         let db_path = app_data_dir.join("clipboard.db");
         let conn = Connection::open(db_path)?;
 
+        // Create table with all columns
         conn.execute(
             "CREATE TABLE IF NOT EXISTS clipboard_items (
                 id TEXT PRIMARY KEY,
@@ -74,13 +75,26 @@ impl Database {
                 image_data TEXT,
                 preview TEXT,
                 is_favorite INTEGER DEFAULT 0,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
             )",
             [],
         )?;
 
+        // Migration: Add updated_at column if it doesn't exist
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_created_at ON clipboard_items(created_at DESC)",
+            "ALTER TABLE clipboard_items ADD COLUMN updated_at INTEGER",
+            [],
+        ).ok(); // Ignore error if column already exists
+
+        // Set updated_at = created_at for existing rows where updated_at is NULL
+        conn.execute(
+            "UPDATE clipboard_items SET updated_at = created_at WHERE updated_at IS NULL",
+            [],
+        ).ok();
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_updated_at ON clipboard_items(updated_at DESC)",
             [],
         )?;
 
@@ -89,12 +103,18 @@ impl Database {
         })
     }
 
+    /// Insert or update clipboard item based on content
+    /// - If content doesn't exist: insert new item with created_at = updated_at = now
+    /// - If content exists: update updated_at = now, keep original created_at
     pub fn insert(&self, item: &ClipboardItem) -> Result<InsertResult, DatabaseError> {
         let conn = self.conn.lock().unwrap();
 
         // Check if same content already exists
         let existing: Option<(String, i64)> = conn.query_row(
-            "SELECT id, created_at FROM clipboard_items WHERE (text_content = ?1 AND ?1 != '') OR (image_data = ?2 AND ?2 != '') ORDER BY created_at DESC LIMIT 1",
+            "SELECT id, created_at FROM clipboard_items
+             WHERE (?1 != '' AND text_content = ?1)
+                OR (?2 != '' AND image_data = ?2)
+             LIMIT 1",
             params![
                 item.text_content.as_deref().unwrap_or(""),
                 item.image_data.as_deref().unwrap_or(""),
@@ -102,18 +122,32 @@ impl Database {
             |row| Ok((row.get(0)?, row.get(1)?)),
         ).ok();
 
-        if let Some((existing_id, _)) = existing {
-            // Content already exists, update timestamp to move to top
+        if let Some((existing_id, original_created_at)) = existing {
+            // Content exists - update updated_at only
+            let updated_at = Utc::now().timestamp();
             conn.execute(
-                "UPDATE clipboard_items SET created_at = ?1 WHERE id = ?2",
-                params![item.created_at, existing_id],
+                "UPDATE clipboard_items SET updated_at = ?1 WHERE id = ?2",
+                params![updated_at, existing_id],
             )?;
-            return Ok(InsertResult::Updated(existing_id));
+
+            // Return updated item with original created_at
+            let updated_item = ClipboardItem {
+                id: existing_id,
+                content_type: item.content_type.clone(),
+                text_content: item.text_content.clone(),
+                image_data: item.image_data.clone(),
+                preview: item.preview.clone(),
+                is_favorite: item.is_favorite,
+                created_at: original_created_at,
+                updated_at,
+            };
+            return Ok(InsertResult::Updated(updated_item));
         }
 
+        // New content - insert with created_at = updated_at
         conn.execute(
-            "INSERT INTO clipboard_items (id, content_type, text_content, image_data, preview, is_favorite, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO clipboard_items (id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 &item.id,
                 item.content_type.as_str(),
@@ -122,6 +156,7 @@ impl Database {
                 &item.preview,
                 item.is_favorite as i32,
                 item.created_at,
+                item.updated_at,
             ],
         )?;
         Ok(InsertResult::Inserted(item.clone()))
@@ -130,9 +165,9 @@ impl Database {
     pub fn get_all(&self, limit: i64, offset: i64) -> Result<Vec<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at
+            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
              FROM clipboard_items
-             ORDER BY created_at DESC
+             ORDER BY updated_at DESC
              LIMIT ?1 OFFSET ?2",
         )?;
 
@@ -146,6 +181,7 @@ impl Database {
                     preview: row.get(4)?,
                     is_favorite: row.get::<_, i32>(5)? == 1,
                     created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -156,10 +192,10 @@ impl Database {
     pub fn search(&self, query: &str, limit: i64) -> Result<Vec<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at
+            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
              FROM clipboard_items
              WHERE text_content LIKE ?1
-             ORDER BY created_at DESC
+             ORDER BY updated_at DESC
              LIMIT ?2",
         )?;
 
@@ -174,6 +210,7 @@ impl Database {
                     preview: row.get(4)?,
                     is_favorite: row.get::<_, i32>(5)? == 1,
                     created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -184,7 +221,7 @@ impl Database {
     pub fn get_by_id(&self, id: &str) -> Result<Option<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at
+            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
              FROM clipboard_items WHERE id = ?1",
         )?;
 
@@ -198,6 +235,7 @@ impl Database {
                     preview: row.get(4)?,
                     is_favorite: row.get::<_, i32>(5)? == 1,
                     created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -221,19 +259,26 @@ impl Database {
     }
 }
 
-pub fn create_clipboard_item(content_type: ContentType, text_content: Option<String>, image_data: Option<String>) -> ClipboardItem {
+/// Helper function to create a new clipboard item
+pub fn create_clipboard_item(
+    content_type: ContentType,
+    text_content: Option<String>,
+    image_data: Option<String>,
+) -> ClipboardItem {
+    let now = Utc::now().timestamp();
     let preview = match &text_content {
         Some(text) => text.chars().take(100).collect(),
         None => "[Image]".to_string(),
     };
 
     ClipboardItem {
-        id: Uuid::new_v4().to_string(),
+        id: uuid::Uuid::new_v4().to_string(),
         content_type,
         text_content,
         image_data,
         preview,
         is_favorite: false,
-        created_at: Utc::now().timestamp(),
+        created_at: now,
+        updated_at: now,
     }
 }

@@ -56,67 +56,61 @@ impl ClipboardMonitor {
         let running_clone = running.clone();
 
         thread::spawn(move || {
-            let mut last_text_hash: Option<String> = None;
-            let mut last_image_hash: Option<String> = None;
+            // Initialize last hash from current clipboard content
+            // This prevents saving the existing clipboard content on startup
+            let mut last_hash: Option<String> = {
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    if let Ok(image) = clipboard.get_image() {
+                        Some(hash_bytes(&image.bytes))
+                    } else if let Ok(text) = clipboard.get_text() {
+                        if !text.is_empty() {
+                            Some(hash_content(&text))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
 
             while running_clone.load(Ordering::SeqCst) {
                 if let Ok(mut clipboard) = Clipboard::new() {
-                    // Try to read image first (images are less common, but more specific)
-                    if let Ok(image) = clipboard.get_image() {
+                    // Try to read image first, then text
+                    let (hash, item_result) = if let Ok(image) = clipboard.get_image() {
                         let hash = hash_bytes(&image.bytes);
-
-                        // Check if we should skip this (we just wrote it)
-                        if should_skip(&hash) {
-                            last_image_hash = Some(hash);
-                        } else if last_image_hash.as_ref() != Some(&hash) {
-                            last_image_hash = Some(hash);
-                            last_text_hash = None; // Reset text hash when image is copied
-
-                            // Convert to base64
-                            let image_data = STANDARD.encode(&image.bytes);
-
-                            // Save to database
-                            let item = Self::create_image_item(&image_data, image.width, image.height);
-                            match db.insert(&item) {
-                                Ok(InsertResult::Inserted(new_item)) => {
-                                    // New item inserted
-                                    app_handle.emit("clipboard-changed", &new_item).ok();
-                                }
-                                Ok(InsertResult::Updated(existing_id)) => {
-                                    // Existing item updated (moved to top)
-                                    // Need to fetch the updated item to emit
-                                    if let Ok(Some(updated_item)) = db.get_by_id(&existing_id) {
-                                        app_handle.emit("clipboard-changed", &updated_item).ok();
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to save clipboard image: {}", e);
-                                }
-                            }
-                        }
+                        let item = Self::create_image_item(&image.bytes, image.width, image.height);
+                        (Some(hash), Some(item))
                     } else if let Ok(text) = clipboard.get_text() {
-                        // Fallback to text
-                        let hash = hash_content(&text);
-
-                        // Check if we should skip this (we just wrote it)
-                        if should_skip(&hash) {
-                            last_text_hash = Some(hash);
-                        } else if last_text_hash.as_ref() != Some(&hash) && !text.is_empty() {
-                            last_text_hash = Some(hash.clone());
-                            last_image_hash = None; // Reset image hash when text is copied
-
-                            // Save to database
+                        if text.is_empty() {
+                            (None, None)
+                        } else {
+                            let hash = hash_content(&text);
                             let item = Self::create_text_item(&text);
+                            (Some(hash), Some(item))
+                        }
+                    } else {
+                        (None, None)
+                    };
+
+                    if let (Some(hash), Some(item)) = (hash, item_result) {
+                        // Skip if we just wrote this content
+                        if should_skip(&hash) {
+                            last_hash = Some(hash);
+                        }
+                        // Only save if content changed
+                        else if last_hash.as_ref() != Some(&hash) {
+                            last_hash = Some(hash);
+
+                            // Insert or update in database
                             match db.insert(&item) {
                                 Ok(InsertResult::Inserted(new_item)) => {
-                                    // New item inserted
                                     app_handle.emit("clipboard-changed", &new_item).ok();
                                 }
-                                Ok(InsertResult::Updated(existing_id)) => {
-                                    // Existing item updated (moved to top)
-                                    if let Ok(Some(updated_item)) = db.get_by_id(&existing_id) {
-                                        app_handle.emit("clipboard-changed", &updated_item).ok();
-                                    }
+                                Ok(InsertResult::Updated(updated_item)) => {
+                                    app_handle.emit("clipboard-changed", &updated_item).ok();
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to save clipboard item: {}", e);
@@ -132,11 +126,8 @@ impl ClipboardMonitor {
         Self { running }
     }
 
-    pub fn stop(&self) {
-        self.running.store(false, Ordering::SeqCst);
-    }
-
     fn create_text_item(text: &str) -> ClipboardItem {
+        let now = Utc::now().timestamp();
         let preview: String = text.chars().take(100).collect();
         ClipboardItem {
             id: Uuid::new_v4().to_string(),
@@ -145,20 +136,24 @@ impl ClipboardMonitor {
             image_data: None,
             preview,
             is_favorite: false,
-            created_at: Utc::now().timestamp(),
+            created_at: now,
+            updated_at: now,
         }
     }
 
-    fn create_image_item(image_data: &str, width: usize, height: usize) -> ClipboardItem {
+    fn create_image_item(bytes: &[u8], width: usize, height: usize) -> ClipboardItem {
+        let now = Utc::now().timestamp();
+        let image_data = STANDARD.encode(bytes);
         let preview = format!("[Image {}x{}]", width, height);
         ClipboardItem {
             id: Uuid::new_v4().to_string(),
             content_type: ContentType::Image,
             text_content: None,
-            image_data: Some(image_data.to_string()),
+            image_data: Some(image_data),
             preview,
             is_favorite: false,
-            created_at: Utc::now().timestamp(),
+            created_at: now,
+            updated_at: now,
         }
     }
 }
@@ -179,8 +174,6 @@ pub fn write_clipboard_image(base64_data: &str) -> Result<(), String> {
 
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
 
-    // Create ImageData from bytes (assuming RGBA format)
-    // For simplicity, we'll set dimensions to 0 and let the clipboard handle it
     let image = arboard::ImageData {
         bytes: bytes.into(),
         width: 0,
