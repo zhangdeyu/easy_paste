@@ -322,6 +322,12 @@ impl Database {
         conn.execute("DELETE FROM clipboard_items WHERE id = ?1", params![id])?;
         Ok(())
     }
+
+    pub fn clear_all(&self) -> Result<usize, DatabaseError> {
+        let conn = self.conn.lock().unwrap();
+        let rows_deleted = conn.execute("DELETE FROM clipboard_items", [])?;
+        Ok(rows_deleted)
+    }
 }
 
 /// Helper function to create a new clipboard item

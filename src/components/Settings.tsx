@@ -11,17 +11,29 @@ import { Separator } from '@/components/ui/separator';
 import { Settings as SettingsIcon } from 'lucide-react';
 
 interface SettingsProps {
-  onClearHistory?: () => void;
+  onClearHistory?: () => Promise<void>;
 }
 
 export function Settings({ onClearHistory }: SettingsProps) {
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
-  const handleClearHistory = () => {
-    if (onClearHistory) {
-      onClearHistory();
+  const handleClearClick = () => {
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmClear = async () => {
+    setIsClearing(true);
+    try {
+      if (onClearHistory) {
+        await onClearHistory();
+      }
+      setConfirmOpen(false);
+      setOpen(false);
+    } finally {
+      setIsClearing(false);
     }
-    setOpen(false);
   };
 
   return (
@@ -47,11 +59,42 @@ export function Settings({ onClearHistory }: SettingsProps) {
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleClearHistory}
+                onClick={handleClearClick}
               >
                 Clear
               </Button>
             </div>
+
+            {/* Confirmation Dialog */}
+            {confirmOpen && (
+              <div className="p-3 bg-destructive/10 rounded-lg border border-destructive/20">
+                <p className="text-sm font-medium text-destructive mb-3">
+                  Are you sure you want to clear all history?
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  This action cannot be undone. All clipboard items will be permanently deleted.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmOpen(false)}
+                    disabled={isClearing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleConfirmClear}
+                    disabled={isClearing}
+                  >
+                    {isClearing ? 'Clearing...' : 'Confirm'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <Separator />
             <div className="space-y-2">
               <p className="text-sm font-medium">About</p>

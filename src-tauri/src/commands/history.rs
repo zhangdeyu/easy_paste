@@ -19,8 +19,6 @@ pub async fn get_favorites(
 }
 
 #[tauri::command]
-pub async fn clear_history(_db: State<'_, Arc<Database>>) -> Result<(), String> {
-    // We need to add a clear_all method to Database for this
-    // For now, return an error indicating this needs implementation
-    Err("clear_history not yet implemented".to_string())
+pub async fn clear_history(db: State<'_, Arc<Database>>) -> Result<usize, String> {
+    db.clear_all().map_err(|e| e.to_string())
 }
