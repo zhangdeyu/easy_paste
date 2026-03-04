@@ -1,5 +1,6 @@
 use crate::clipboard::{write_clipboard_image, write_clipboard_text};
 use crate::database::models::{create_clipboard_item, ClipboardItem, ContentType, Database};
+use crate::window_position::{WindowPosition, WindowPositionStore};
 use std::sync::Arc;
 use tauri::State;
 
@@ -55,4 +56,14 @@ pub async fn save_clipboard(
     let item = create_clipboard_item(ContentType::Text, Some(content), None, None);
     db.insert(&item).map_err(|e| e.to_string())?;
     Ok(item)
+}
+
+#[tauri::command]
+pub async fn save_window_position(
+    position_store: State<'_, Arc<WindowPositionStore>>,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    let position = WindowPosition { x, y };
+    position_store.save(&position).map_err(|e| e.to_string())
 }

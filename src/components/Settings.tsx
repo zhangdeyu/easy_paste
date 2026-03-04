@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Settings as SettingsIcon } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 
 interface SettingsProps {
   onClearHistory?: () => Promise<void>;
@@ -18,6 +19,41 @@ export function Settings({ onClearHistory }: SettingsProps) {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [isLoadingAutostart, setIsLoadingAutostart] = useState(false);
+
+  // Check autostart status when dialog opens
+  useEffect(() => {
+    if (open) {
+      checkAutostartStatus();
+    }
+  }, [open]);
+
+  const checkAutostartStatus = async () => {
+    try {
+      const enabled = await invoke<boolean>('plugin:autostart|is_enabled');
+      setAutostartEnabled(enabled);
+    } catch (error) {
+      console.error('Failed to check autostart status:', error);
+    }
+  };
+
+  const toggleAutostart = async () => {
+    setIsLoadingAutostart(true);
+    try {
+      if (autostartEnabled) {
+        await invoke('plugin:autostart|disable');
+        setAutostartEnabled(false);
+      } else {
+        await invoke('plugin:autostart|enable');
+        setAutostartEnabled(true);
+      }
+    } catch (error) {
+      console.error('Failed to toggle autostart:', error);
+    } finally {
+      setIsLoadingAutostart(false);
+    }
+  };
 
   const handleClearClick = () => {
     setConfirmOpen(true);
@@ -49,6 +85,27 @@ export function Settings({ onClearHistory }: SettingsProps) {
         </DialogHeader>
         <div className="py-4">
           <div className="space-y-4">
+            {/* Autostart */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Launch at Login</p>
+                <p className="text-xs text-muted-foreground">
+                  Start Easy Paste when you log in
+                </p>
+              </div>
+              <Button
+                variant={autostartEnabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={toggleAutostart}
+                disabled={isLoadingAutostart}
+              >
+                {isLoadingAutostart ? '...' : autostartEnabled ? 'On' : 'Off'}
+              </Button>
+            </div>
+
+            <Separator />
+
+            {/* Clear History */}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">Clear History</p>
