@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ClipboardItem } from '@/types/clipboard';
+import type { ClipboardItem, ContentType } from '@/types/clipboard';
 
 export async function getHistory(limit: number = 100, offset: number = 0): Promise<ClipboardItem[]> {
   return invoke<ClipboardItem[]>('get_history', { limit, offset });
@@ -21,8 +21,8 @@ export async function toggleFavorite(id: string): Promise<void> {
   return invoke('toggle_favorite', { id });
 }
 
-export async function copyToClipboard(content: string): Promise<void> {
-  return invoke('copy_to_clipboard', { content });
+export async function copyToClipboard(content: string, contentType: ContentType = 'text'): Promise<void> {
+  return invoke('copy_to_clipboard', { content, contentType });
 }
 
 export async function saveClipboard(content: string): Promise<ClipboardItem> {

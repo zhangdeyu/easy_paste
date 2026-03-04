@@ -1,4 +1,4 @@
-use crate::clipboard::write_clipboard_text;
+use crate::clipboard::{write_clipboard_image, write_clipboard_text};
 use crate::database::models::{create_clipboard_item, ClipboardItem, ContentType, Database};
 use std::sync::Arc;
 use tauri::State;
@@ -40,8 +40,11 @@ pub async fn toggle_favorite(db: State<'_, Arc<Database>>, id: String) -> Result
 }
 
 #[tauri::command]
-pub async fn copy_to_clipboard(content: String) -> Result<(), String> {
-    write_clipboard_text(&content)
+pub async fn copy_to_clipboard(content: String, content_type: String) -> Result<(), String> {
+    match content_type.as_str() {
+        "image" => write_clipboard_image(&content),
+        _ => write_clipboard_text(&content),
+    }
 }
 
 #[tauri::command]

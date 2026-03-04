@@ -24,8 +24,9 @@ function App() {
   };
 
   const handleCopy = async (item: ClipboardItem) => {
-    if (item.text_content) {
-      await copyToClipboard(item.text_content);
+    const content = item.content_type === 'image' ? item.image_data : item.text_content;
+    if (content) {
+      await copyToClipboard(content, item.content_type);
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     }
@@ -33,6 +34,22 @@ function App() {
 
   const formatTime = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleString();
+  };
+
+  const renderPreview = (item: ClipboardItem) => {
+    if (item.content_type === 'image' && item.image_data) {
+      return (
+        <div className="flex items-center gap-2">
+          <img
+            src={`data:image/png;base64,${item.image_data}`}
+            alt="Clipboard image"
+            className="w-12 h-12 object-cover rounded border"
+          />
+          <span className="text-sm text-muted-foreground">{item.preview}</span>
+        </div>
+      );
+    }
+    return <p className="text-sm truncate">{item.preview}</p>;
   };
 
   return (
@@ -53,7 +70,7 @@ function App() {
           <div className="p-4 text-center text-muted-foreground">Loading...</div>
         ) : items.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground">
-            No clipboard history yet. Copy some text to get started.
+            No clipboard history yet. Copy some text or image to get started.
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -65,7 +82,7 @@ function App() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{item.preview}</p>
+                    {renderPreview(item)}
                     <p className="text-xs text-muted-foreground mt-1">
                       {formatTime(item.created_at)}
                     </p>
