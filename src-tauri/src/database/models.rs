@@ -11,13 +11,14 @@ pub struct ClipboardItem {
     pub content_type: ContentType,
     pub text_content: Option<String>,
     pub image_data: Option<String>,
+    pub file_path: Option<String>,
     pub preview: String,
     pub is_favorite: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ContentType {
     Text,
     Image,
@@ -73,6 +74,7 @@ impl Database {
                 content_type TEXT NOT NULL,
                 text_content TEXT,
                 image_data TEXT,
+                file_path TEXT,
                 preview TEXT,
                 is_favorite INTEGER DEFAULT 0,
                 created_at INTEGER NOT NULL,
@@ -87,6 +89,12 @@ impl Database {
             [],
         ).ok(); // Ignore error if column already exists
 
+        // Migration: Add file_path column if it doesn't exist
+        conn.execute(
+            "ALTER TABLE clipboard_items ADD COLUMN file_path TEXT",
+            [],
+        ).ok(); // Ignore error if column already exists
+
         // Set updated_at = created_at for existing rows where updated_at is NULL
         conn.execute(
             "UPDATE clipboard_items SET updated_at = created_at WHERE updated_at IS NULL",
@@ -98,6 +106,12 @@ impl Database {
             [],
         )?;
 
+        // Add index for file_path to speed up path-based lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_file_path ON clipboard_items(file_path)",
+            [],
+        ).ok();
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -106,21 +120,67 @@ impl Database {
     /// Insert or update clipboard item based on content
     /// - If content doesn't exist: insert new item with created_at = updated_at = now
     /// - If content exists: update updated_at = now, keep original created_at
+    /// - For images: if file_path exists, compare by path first, then by content
     pub fn insert(&self, item: &ClipboardItem) -> Result<InsertResult, DatabaseError> {
         let conn = self.conn.lock().unwrap();
 
         // Check if same content already exists
-        let existing: Option<(String, i64)> = conn.query_row(
-            "SELECT id, created_at FROM clipboard_items
-             WHERE (?1 != '' AND text_content = ?1)
-                OR (?2 != '' AND image_data = ?2)
-             LIMIT 1",
-            params![
-                item.text_content.as_deref().unwrap_or(""),
-                item.image_data.as_deref().unwrap_or(""),
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).ok();
+        // For images with path: check path first, then fall back to content comparison
+        let existing: Option<(String, i64)> = if item.content_type == ContentType::Image {
+            // For image type: check by path first if available
+            if let Some(ref path) = item.file_path {
+                if !path.is_empty() {
+                    // Try to find by path first
+                    let by_path = conn.query_row(
+                        "SELECT id, created_at FROM clipboard_items
+                         WHERE file_path = ?1 AND file_path != ''
+                         LIMIT 1",
+                        params![path],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    ).ok();
+
+                    if by_path.is_some() {
+                        by_path
+                    } else {
+                        // Path not found, check by content
+                        conn.query_row(
+                            "SELECT id, created_at FROM clipboard_items
+                             WHERE ?1 != '' AND image_data = ?1
+                             LIMIT 1",
+                            params![item.image_data.as_deref().unwrap_or("")],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        ).ok()
+                    }
+                } else {
+                    // No path, check by content
+                    conn.query_row(
+                        "SELECT id, created_at FROM clipboard_items
+                         WHERE ?1 != '' AND image_data = ?1
+                         LIMIT 1",
+                        params![item.image_data.as_deref().unwrap_or("")],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    ).ok()
+                }
+            } else {
+                // No path, check by content
+                conn.query_row(
+                    "SELECT id, created_at FROM clipboard_items
+                     WHERE ?1 != '' AND image_data = ?1
+                     LIMIT 1",
+                    params![item.image_data.as_deref().unwrap_or("")],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                ).ok()
+            }
+        } else {
+            // For text type: check by text content
+            conn.query_row(
+                "SELECT id, created_at FROM clipboard_items
+                 WHERE ?1 != '' AND text_content = ?1
+                 LIMIT 1",
+                params![item.text_content.as_deref().unwrap_or("")],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).ok()
+        };
 
         if let Some((existing_id, original_created_at)) = existing {
             // Content exists - update updated_at only
@@ -136,6 +196,7 @@ impl Database {
                 content_type: item.content_type.clone(),
                 text_content: item.text_content.clone(),
                 image_data: item.image_data.clone(),
+                file_path: item.file_path.clone(),
                 preview: item.preview.clone(),
                 is_favorite: item.is_favorite,
                 created_at: original_created_at,
@@ -146,13 +207,14 @@ impl Database {
 
         // New content - insert with created_at = updated_at
         conn.execute(
-            "INSERT INTO clipboard_items (id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO clipboard_items (id, content_type, text_content, image_data, file_path, preview, is_favorite, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 &item.id,
                 item.content_type.as_str(),
                 item.text_content.as_deref().unwrap_or(""),
                 item.image_data.as_deref().unwrap_or(""),
+                item.file_path.as_deref().unwrap_or(""),
                 &item.preview,
                 item.is_favorite as i32,
                 item.created_at,
@@ -165,7 +227,7 @@ impl Database {
     pub fn get_all(&self, limit: i64, offset: i64) -> Result<Vec<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
+            "SELECT id, content_type, text_content, image_data, file_path, preview, is_favorite, created_at, updated_at
              FROM clipboard_items
              ORDER BY updated_at DESC
              LIMIT ?1 OFFSET ?2",
@@ -178,10 +240,11 @@ impl Database {
                     content_type: ContentType::from_str(&row.get::<_, String>(1)?),
                     text_content: row.get(2)?,
                     image_data: row.get(3)?,
-                    preview: row.get(4)?,
-                    is_favorite: row.get::<_, i32>(5)? == 1,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    file_path: row.get(4)?,
+                    preview: row.get(5)?,
+                    is_favorite: row.get::<_, i32>(6)? == 1,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -192,7 +255,7 @@ impl Database {
     pub fn search(&self, query: &str, limit: i64) -> Result<Vec<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
+            "SELECT id, content_type, text_content, image_data, file_path, preview, is_favorite, created_at, updated_at
              FROM clipboard_items
              WHERE text_content LIKE ?1
              ORDER BY updated_at DESC
@@ -207,10 +270,11 @@ impl Database {
                     content_type: ContentType::from_str(&row.get::<_, String>(1)?),
                     text_content: row.get(2)?,
                     image_data: row.get(3)?,
-                    preview: row.get(4)?,
-                    is_favorite: row.get::<_, i32>(5)? == 1,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    file_path: row.get(4)?,
+                    preview: row.get(5)?,
+                    is_favorite: row.get::<_, i32>(6)? == 1,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -221,7 +285,7 @@ impl Database {
     pub fn get_by_id(&self, id: &str) -> Result<Option<ClipboardItem>, DatabaseError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content_type, text_content, image_data, preview, is_favorite, created_at, updated_at
+            "SELECT id, content_type, text_content, image_data, file_path, preview, is_favorite, created_at, updated_at
              FROM clipboard_items WHERE id = ?1",
         )?;
 
@@ -232,10 +296,11 @@ impl Database {
                     content_type: ContentType::from_str(&row.get::<_, String>(1)?),
                     text_content: row.get(2)?,
                     image_data: row.get(3)?,
-                    preview: row.get(4)?,
-                    is_favorite: row.get::<_, i32>(5)? == 1,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    file_path: row.get(4)?,
+                    preview: row.get(5)?,
+                    is_favorite: row.get::<_, i32>(6)? == 1,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -264,6 +329,7 @@ pub fn create_clipboard_item(
     content_type: ContentType,
     text_content: Option<String>,
     image_data: Option<String>,
+    file_path: Option<String>,
 ) -> ClipboardItem {
     let now = Utc::now().timestamp();
     let preview = match &text_content {
@@ -276,6 +342,7 @@ pub fn create_clipboard_item(
         content_type,
         text_content,
         image_data,
+        file_path,
         preview,
         is_favorite: false,
         created_at: now,

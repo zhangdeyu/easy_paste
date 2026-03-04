@@ -15,6 +15,20 @@ use crate::database::models::{ClipboardItem, ContentType, Database, InsertResult
 static SKIP_HASH: once_cell::sync::Lazy<Arc<Mutex<Option<String>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
+/// Supported image extensions
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif"];
+
+/// Check if a file path is an image based on extension
+fn is_image_file(path: &str) -> bool {
+    let path_lower = path.to_lowercase();
+    IMAGE_EXTENSIONS.iter().any(|ext| path_lower.ends_with(&format!(".{}", ext)))
+}
+
+/// Check if text looks like a file path (starts with / or contains file://)
+fn is_file_path(text: &str) -> bool {
+    text.starts_with('/') || text.starts_with("file://")
+}
+
 /// Mark a hash to be skipped on next clipboard change detection
 pub fn set_skip_hash(hash: String) {
     if let Ok(mut guard) = SKIP_HASH.lock() {
@@ -47,7 +61,7 @@ fn should_skip(hash: &str) -> bool {
 }
 
 pub struct ClipboardMonitor {
-    running: Arc<AtomicBool>,
+    _running: Arc<AtomicBool>,
 }
 
 impl ClipboardMonitor {
@@ -79,12 +93,17 @@ impl ClipboardMonitor {
             while running_clone.load(Ordering::SeqCst) {
                 if let Ok(mut clipboard) = Clipboard::new() {
                     // Try to read image first, then text
+                    // Important: On macOS, copying an image may also place file path as text
+                    // So we prioritize image detection to avoid duplicate entries
                     let (hash, item_result) = if let Ok(image) = clipboard.get_image() {
                         let hash = hash_bytes(&image.bytes);
-                        let item = Self::create_image_item(&image.bytes, image.width, image.height);
+                        let item = Self::create_image_item(&image.bytes, image.width, image.height, None);
                         (Some(hash), Some(item))
                     } else if let Ok(text) = clipboard.get_text() {
                         if text.is_empty() {
+                            (None, None)
+                        } else if is_file_path(&text) && !is_image_file(&text) {
+                            // Skip non-image file paths - we don't want to track random file copies
                             (None, None)
                         } else {
                             let hash = hash_content(&text);
@@ -123,7 +142,7 @@ impl ClipboardMonitor {
             }
         });
 
-        Self { running }
+        Self { _running: running }
     }
 
     fn create_text_item(text: &str) -> ClipboardItem {
@@ -134,6 +153,7 @@ impl ClipboardMonitor {
             content_type: ContentType::Text,
             text_content: Some(text.to_string()),
             image_data: None,
+            file_path: None,
             preview,
             is_favorite: false,
             created_at: now,
@@ -141,7 +161,7 @@ impl ClipboardMonitor {
         }
     }
 
-    fn create_image_item(bytes: &[u8], width: usize, height: usize) -> ClipboardItem {
+    fn create_image_item(bytes: &[u8], width: usize, height: usize, file_path: Option<&str>) -> ClipboardItem {
         let now = Utc::now().timestamp();
         let image_data = STANDARD.encode(bytes);
         let preview = format!("[Image {}x{}]", width, height);
@@ -150,6 +170,7 @@ impl ClipboardMonitor {
             content_type: ContentType::Image,
             text_content: None,
             image_data: Some(image_data),
+            file_path: file_path.map(|s| s.to_string()),
             preview,
             is_favorite: false,
             created_at: now,
