@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useHistory } from '@/hooks/useHistory';
 import { useClipboardListener } from '@/hooks/useClipboardListener';
-import { copyToClipboard, saveClipboard } from '@/lib/api';
+import { copyToClipboard } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,14 +13,9 @@ function App() {
   const { items, isLoading, search, toggleFavorite, deleteItem, addItem } = useHistory();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Listen for clipboard changes
-  useClipboardListener(async (content: string) => {
-    try {
-      const item = await saveClipboard(content);
-      addItem(item);
-    } catch (err) {
-      console.error('Failed to save clipboard item:', err);
-    }
+  // Listen for clipboard changes - backend now saves to DB and sends ClipboardItem
+  useClipboardListener((item: ClipboardItem) => {
+    addItem(item);
   });
 
   const handleSearch = (query: string) => {
