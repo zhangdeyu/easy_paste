@@ -38,6 +38,7 @@ pub fn run() {
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::save_clipboard,
             commands::history::get_favorites,
+            commands::history::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

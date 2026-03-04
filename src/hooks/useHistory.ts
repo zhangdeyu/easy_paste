@@ -75,6 +75,15 @@ export function useHistory(limit: number = 100) {
     });
   }, []);
 
+  const clearHistory = useCallback(async () => {
+    try {
+      await api.clearHistory();
+      setItems([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear history');
+    }
+  }, []);
+
   return {
     items,
     isLoading,
@@ -83,6 +92,7 @@ export function useHistory(limit: number = 100) {
     toggleFavorite,
     deleteItem,
     addItem,
+    clearHistory,
     refresh: fetchItems,
   };
 }

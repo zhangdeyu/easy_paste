@@ -11,7 +11,7 @@ import type { ClipboardItem } from '@/types/clipboard';
 
 function App() {
   const [searchQuery, setSearchQuery] = useState('');
-  const { items, isLoading, search, toggleFavorite, deleteItem, addItem, refresh } = useHistory();
+  const { items, isLoading, search, toggleFavorite, deleteItem, addItem, clearHistory } = useHistory();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Listen for clipboard changes - backend now saves to DB and sends ClipboardItem
@@ -53,17 +53,13 @@ function App() {
     return <p className="text-sm truncate">{item.preview}</p>;
   };
 
-  const handleClearHistory = () => {
-    refresh();
-  };
-
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-semibold">Easy Paste</h1>
-          <Settings onClearHistory={handleClearHistory} />
+          <Settings onClearHistory={clearHistory} />
         </div>
         <Input
           placeholder="Search clipboard history..."

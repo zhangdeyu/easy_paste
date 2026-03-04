@@ -32,3 +32,7 @@ export async function saveClipboard(content: string): Promise<ClipboardItem> {
 export async function getFavorites(limit: number = 50): Promise<ClipboardItem[]> {
   return invoke<ClipboardItem[]>('get_favorites', { limit });
 }
+
+export async function clearHistory(): Promise<number> {
+  return invoke<number>('clear_history');
+}
