@@ -1,6 +1,7 @@
 mod clipboard;
 mod commands;
 mod database;
+mod tray;
 
 use clipboard::ClipboardMonitor;
 use database::models::Database;
@@ -10,6 +11,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // Get app data directory
             let app_data_dir = app.path().app_data_dir().expect("Failed to get app data dir");
@@ -21,6 +23,9 @@ pub fn run() {
             // Start clipboard monitor with database reference
             let app_handle = app.handle().clone();
             let _monitor = ClipboardMonitor::start(app_handle, db);
+
+            // Setup system tray
+            tray::setup_tray(app)?;
 
             Ok(())
         })
