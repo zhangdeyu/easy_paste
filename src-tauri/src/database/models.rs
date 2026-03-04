@@ -47,6 +47,15 @@ pub enum DatabaseError {
     Io(#[from] std::io::Error),
 }
 
+/// Result of inserting a clipboard item
+#[derive(Debug, Clone)]
+pub enum InsertResult {
+    /// New item was inserted
+    Inserted(ClipboardItem),
+    /// Existing item was updated (timestamp changed)
+    Updated(String), // existing item ID
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -80,8 +89,28 @@ impl Database {
         })
     }
 
-    pub fn insert(&self, item: &ClipboardItem) -> Result<(), DatabaseError> {
+    pub fn insert(&self, item: &ClipboardItem) -> Result<InsertResult, DatabaseError> {
         let conn = self.conn.lock().unwrap();
+
+        // Check if same content already exists
+        let existing: Option<(String, i64)> = conn.query_row(
+            "SELECT id, created_at FROM clipboard_items WHERE (text_content = ?1 AND ?1 != '') OR (image_data = ?2 AND ?2 != '') ORDER BY created_at DESC LIMIT 1",
+            params![
+                item.text_content.as_deref().unwrap_or(""),
+                item.image_data.as_deref().unwrap_or(""),
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).ok();
+
+        if let Some((existing_id, _)) = existing {
+            // Content already exists, update timestamp to move to top
+            conn.execute(
+                "UPDATE clipboard_items SET created_at = ?1 WHERE id = ?2",
+                params![item.created_at, existing_id],
+            )?;
+            return Ok(InsertResult::Updated(existing_id));
+        }
+
         conn.execute(
             "INSERT INTO clipboard_items (id, content_type, text_content, image_data, preview, is_favorite, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -95,7 +124,7 @@ impl Database {
                 item.created_at,
             ],
         )?;
-        Ok(())
+        Ok(InsertResult::Inserted(item.clone()))
     }
 
     pub fn get_all(&self, limit: i64, offset: i64) -> Result<Vec<ClipboardItem>, DatabaseError> {

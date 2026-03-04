@@ -3,13 +3,48 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::database::models::{ClipboardItem, ContentType, Database};
+use crate::database::models::{ClipboardItem, ContentType, Database, InsertResult};
+
+/// Global state to skip the next clipboard content that we just wrote
+static SKIP_HASH: once_cell::sync::Lazy<Arc<Mutex<Option<String>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+
+/// Mark a hash to be skipped on next clipboard change detection
+pub fn set_skip_hash(hash: String) {
+    if let Ok(mut guard) = SKIP_HASH.lock() {
+        *guard = Some(hash);
+    }
+}
+
+/// Hash text content
+fn hash_content(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Hash binary content
+fn hash_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Check if this hash should be skipped (we just wrote it to clipboard)
+fn should_skip(hash: &str) -> bool {
+    if let Ok(mut guard) = SKIP_HASH.lock() {
+        if let Some(skip_hash) = guard.take() {
+            return skip_hash == hash;
+        }
+    }
+    false
+}
 
 pub struct ClipboardMonitor {
     running: Arc<AtomicBool>,
@@ -28,8 +63,12 @@ impl ClipboardMonitor {
                 if let Ok(mut clipboard) = Clipboard::new() {
                     // Try to read image first (images are less common, but more specific)
                     if let Ok(image) = clipboard.get_image() {
-                        let hash = Self::hash_bytes(&image.bytes);
-                        if last_image_hash.as_ref() != Some(&hash) {
+                        let hash = hash_bytes(&image.bytes);
+
+                        // Check if we should skip this (we just wrote it)
+                        if should_skip(&hash) {
+                            last_image_hash = Some(hash);
+                        } else if last_image_hash.as_ref() != Some(&hash) {
                             last_image_hash = Some(hash);
                             last_text_hash = None; // Reset text hash when image is copied
 
@@ -38,28 +77,51 @@ impl ClipboardMonitor {
 
                             // Save to database
                             let item = Self::create_image_item(&image_data, image.width, image.height);
-                            if let Err(e) = db.insert(&item) {
-                                eprintln!("Failed to save clipboard image: {}", e);
+                            match db.insert(&item) {
+                                Ok(InsertResult::Inserted(new_item)) => {
+                                    // New item inserted
+                                    app_handle.emit("clipboard-changed", &new_item).ok();
+                                }
+                                Ok(InsertResult::Updated(existing_id)) => {
+                                    // Existing item updated (moved to top)
+                                    // Need to fetch the updated item to emit
+                                    if let Ok(Some(updated_item)) = db.get_by_id(&existing_id) {
+                                        app_handle.emit("clipboard-changed", &updated_item).ok();
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to save clipboard image: {}", e);
+                                }
                             }
-
-                            // Emit event to frontend
-                            app_handle.emit("clipboard-changed", &item).ok();
                         }
                     } else if let Ok(text) = clipboard.get_text() {
                         // Fallback to text
-                        let hash = Self::hash_content(&text);
-                        if last_text_hash.as_ref() != Some(&hash) && !text.is_empty() {
+                        let hash = hash_content(&text);
+
+                        // Check if we should skip this (we just wrote it)
+                        if should_skip(&hash) {
+                            last_text_hash = Some(hash);
+                        } else if last_text_hash.as_ref() != Some(&hash) && !text.is_empty() {
                             last_text_hash = Some(hash.clone());
                             last_image_hash = None; // Reset image hash when text is copied
 
                             // Save to database
                             let item = Self::create_text_item(&text);
-                            if let Err(e) = db.insert(&item) {
-                                eprintln!("Failed to save clipboard item: {}", e);
+                            match db.insert(&item) {
+                                Ok(InsertResult::Inserted(new_item)) => {
+                                    // New item inserted
+                                    app_handle.emit("clipboard-changed", &new_item).ok();
+                                }
+                                Ok(InsertResult::Updated(existing_id)) => {
+                                    // Existing item updated (moved to top)
+                                    if let Ok(Some(updated_item)) = db.get_by_id(&existing_id) {
+                                        app_handle.emit("clipboard-changed", &updated_item).ok();
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to save clipboard item: {}", e);
+                                }
                             }
-
-                            // Emit event to frontend
-                            app_handle.emit("clipboard-changed", &item).ok();
                         }
                     }
                 }
@@ -72,18 +134,6 @@ impl ClipboardMonitor {
 
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
-    }
-
-    fn hash_content(content: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(content.as_bytes());
-        format!("{:x}", hasher.finalize())
-    }
-
-    fn hash_bytes(bytes: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        format!("{:x}", hasher.finalize())
     }
 
     fn create_text_item(text: &str) -> ClipboardItem {
@@ -113,18 +163,20 @@ impl ClipboardMonitor {
     }
 }
 
-pub fn read_clipboard_text() -> Result<String, String> {
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.get_text().map_err(|e| e.to_string())
-}
-
 pub fn write_clipboard_text(content: &str) -> Result<(), String> {
+    // Set skip hash before writing so monitor won't detect our own write
+    set_skip_hash(hash_content(content));
+
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(content).map_err(|e| e.to_string())
 }
 
 pub fn write_clipboard_image(base64_data: &str) -> Result<(), String> {
     let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
+
+    // Set skip hash before writing so monitor won't detect our own write
+    set_skip_hash(hash_bytes(&bytes));
+
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
 
     // Create ImageData from bytes (assuming RGBA format)
