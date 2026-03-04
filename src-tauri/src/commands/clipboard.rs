@@ -52,7 +52,7 @@ pub async fn save_clipboard(
     db: State<'_, Arc<Database>>,
     content: String,
 ) -> Result<ClipboardItem, String> {
-    let item = create_clipboard_item(ContentType::Text, Some(content), None);
+    let item = create_clipboard_item(ContentType::Text, Some(content), None, None);
     db.insert(&item).map_err(|e| e.to_string())?;
     Ok(item)
 }
