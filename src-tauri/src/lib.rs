@@ -42,7 +42,12 @@ pub fn run() {
 
             // Start clipboard monitor with database reference
             let app_handle = app.handle().clone();
-            let _monitor = ClipboardMonitor::start(app_handle, db);
+            let _monitor = ClipboardMonitor::start(app_handle, db.clone());
+
+            // Cleanup expired items on startup (non-favorite items only)
+            if let Err(e) = db.delete_expired() {
+                eprintln!("Failed to cleanup expired items: {}", e);
+            }
 
             // Setup system tray
             tray::setup_tray(app)?;
@@ -60,6 +65,10 @@ pub fn run() {
             commands::clipboard::save_window_position,
             commands::history::get_favorites,
             commands::history::clear_history,
+            commands::history::delete_batch,
+            commands::history::get_expiry_days,
+            commands::history::set_expiry_days,
+            commands::history::cleanup_expired,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
