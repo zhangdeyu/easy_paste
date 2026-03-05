@@ -7,7 +7,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getExpiryDays, setExpiryDays, cleanupExpired } from '@/lib/api';
@@ -122,98 +121,96 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Open settings">
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label="Open settings">
           <SettingsIcon className="h-4 w-4" aria-hidden="true" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+      <DialogContent className="sm:max-w-[380px] border-0 shadow-2xl">
+        <DialogHeader className="pb-2">
+          <DialogTitle className="text-base font-medium">Settings</DialogTitle>
         </DialogHeader>
-        <div className="py-4">
-          <div className="space-y-4">
+        <div className="py-2">
+          <div className="space-y-1">
             {/* Autostart */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between py-3 px-1 rounded-lg hover:bg-muted/50 transition-colors">
               <div>
-                <p className="text-sm font-medium">Launch at Login</p>
-                <p className="text-xs text-muted-foreground">
-                  Start Easy Paste when you log in
+                <p className="text-sm">Launch at Login</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Start when you log in
                 </p>
               </div>
-              <Button
-                variant={autostartEnabled ? 'default' : 'outline'}
-                size="sm"
+              <button
                 onClick={toggleAutostart}
                 disabled={isLoadingAutostart}
+                className={`relative w-10 h-6 rounded-full transition-colors ${
+                  autostartEnabled ? 'bg-primary' : 'bg-muted'
+                }`}
               >
-                {isLoadingAutostart ? '…' : autostartEnabled ? 'On' : 'Off'}
-              </Button>
+                <span
+                  className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    autostartEnabled ? 'translate-x-4' : ''
+                  }`}
+                />
+              </button>
             </div>
-
-            <Separator />
 
             {/* Expiry Days */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between py-3 px-1 rounded-lg hover:bg-muted/50 transition-colors">
               <label htmlFor="expiry-days" className="cursor-pointer">
-                <p className="text-sm font-medium">History Expiry</p>
-                <p className="text-xs text-muted-foreground">
-                  Non-favorite items expire after {expiryDays} days
+                <p className="text-sm">History Expiry</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Non-favorites expire after {expiryDays} days
                 </p>
               </label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="expiry-days"
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={expiryDays}
-                  onChange={(e) => handleExpiryDaysChange(parseInt(e.target.value) || 30)}
-                  disabled={isLoadingExpiry}
-                  name="expiry-days"
-                  autoComplete="off"
-                  className="w-16 h-8 text-center text-sm border rounded px-1"
-                />
-                <span className="text-xs text-muted-foreground">days</span>
-              </div>
+              <input
+                id="expiry-days"
+                type="number"
+                min={1}
+                max={365}
+                value={expiryDays}
+                onChange={(e) => handleExpiryDaysChange(parseInt(e.target.value) || 30)}
+                disabled={isLoadingExpiry}
+                name="expiry-days"
+                autoComplete="off"
+                className="w-14 h-8 text-center text-sm border rounded-md bg-background px-1 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
             </div>
 
-            <Separator />
-
             {/* Clear Expired */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between py-3 px-1 rounded-lg hover:bg-muted/50 transition-colors">
               <div>
-                <p className="text-sm font-medium">Cleanup Expired</p>
-                <p className="text-xs text-muted-foreground">
-                  Delete expired non-favorite items now
+                <p className="text-sm">Cleanup Expired</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Delete expired items now
                 </p>
               </div>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={handleCleanupExpired}
                 disabled={isCleaningUp}
+                className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground"
               >
-                {isCleaningUp ? 'Cleaning…' : 'Cleanup'}
+                {isCleaningUp ? '…' : 'Cleanup'}
               </Button>
             </div>
             {cleanupMessage && (
-              <p className="text-xs text-muted-foreground">{cleanupMessage}</p>
+              <p className="text-xs text-muted-foreground py-2">{cleanupMessage}</p>
             )}
 
-            <Separator />
-
             {/* Clear History */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between py-3 px-1 rounded-lg hover:bg-muted/50 transition-colors">
               <div>
-                <p className="text-sm font-medium">Clear History</p>
-                <p className="text-xs text-muted-foreground">
-                  Delete all clipboard history
+                <p className="text-sm">Clear History</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Delete all clipboard items
                 </p>
               </div>
               <Button
-                variant="destructive"
+                variant="ghost"
                 size="sm"
                 onClick={handleClearClick}
+                className="text-xs h-8 px-3 text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 Clear
               </Button>
@@ -221,19 +218,20 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
 
             {/* Confirmation Dialog */}
             {confirmOpen && (
-              <div className="p-3 bg-destructive/10 rounded-lg border border-destructive/20">
-                <p className="text-sm font-medium text-destructive mb-3">
-                  Are you sure you want to clear all history?
+              <div className="p-4 bg-destructive/5 rounded-lg border border-destructive/10 mt-2">
+                <p className="text-sm font-medium mb-1">
+                  Clear all history?
                 </p>
                 <p className="text-xs text-muted-foreground mb-3">
-                  This action cannot be undone. All clipboard items will be permanently deleted.
+                  This cannot be undone.
                 </p>
                 <div className="flex gap-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => setConfirmOpen(false)}
                     disabled={isClearing}
+                    className="text-xs h-8 px-3"
                   >
                     Cancel
                   </Button>
@@ -242,21 +240,17 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
                     size="sm"
                     onClick={handleConfirmClear}
                     disabled={isClearing}
+                    className="text-xs h-8 px-3"
                   >
-                    {isClearing ? 'Clearing…' : 'Confirm'}
+                    {isClearing ? 'Clearing…' : 'Clear'}
                   </Button>
                 </div>
               </div>
             )}
 
-            <Separator />
-            <div className="space-y-2">
-              <p className="text-sm font-medium">About</p>
+            <div className="pt-4 mt-2 border-t">
               <p className="text-xs text-muted-foreground">
                 Easy Paste v0.1.0
-              </p>
-              <p className="text-xs text-muted-foreground">
-                A cross-platform clipboard manager
               </p>
             </div>
           </div>
