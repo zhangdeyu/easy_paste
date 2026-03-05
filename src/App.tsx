@@ -14,6 +14,7 @@ import {
 import type { ClipboardItem, ContentType } from '@/types/clipboard';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type FilterType = 'all' | ContentType;
 
@@ -26,12 +27,16 @@ async function saveWindowPosition() {
 function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
-  const { items, isLoading, search, toggleFavorite, deleteItem, addItem, clearHistory } = useHistory();
+  const { items, isLoading, search, toggleFavorite, deleteItem, deleteBatch, addItem, clearHistory, refresh } = useHistory();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Multi-select mode
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Filter items based on content type
   const filteredItems = filter === 'all'
@@ -45,12 +50,52 @@ function App() {
 
   // Handle copy action
   const handleCopy = useCallback(async (item: ClipboardItem) => {
+    if (isSelectMode) {
+      toggleSelection(item.id);
+      return;
+    }
     const content = item.content_type === 'image' ? item.image_data : item.text_content;
     if (content) {
       await copyToClipboard(content, item.content_type);
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     }
+  }, [isSelectMode]);
+
+  // Toggle selection for multi-select mode
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Toggle select all
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === filteredItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredItems.map(item => item.id)));
+    }
+  }, [filteredItems, selectedIds.size]);
+
+  // Delete selected items
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    await deleteBatch(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    setIsSelectMode(false);
+  }, [selectedIds, deleteBatch]);
+
+  // Exit select mode
+  const exitSelectMode = useCallback(() => {
+    setIsSelectMode(false);
+    setSelectedIds(new Set());
   }, []);
 
   // Keyboard navigation
@@ -60,6 +105,12 @@ function App() {
       if (e.key === 'Escape') {
         (document.activeElement as HTMLInputElement).blur();
       }
+      return;
+    }
+
+    // Handle escape in select mode
+    if (e.key === 'Escape' && isSelectMode) {
+      exitSelectMode();
       return;
     }
 
@@ -84,7 +135,7 @@ function App() {
         getCurrentWindow().hide();
         break;
     }
-  }, [filteredItems, selectedIndex, handleCopy]);
+  }, [filteredItems, selectedIndex, handleCopy, isSelectMode, exitSelectMode]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -141,7 +192,49 @@ function App() {
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-semibold">Easy Paste</h1>
-          <Settings onClearHistory={clearHistory} />
+          <div className="flex items-center gap-1">
+            {isSelectMode ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleSelectAll}
+                  className="text-xs h-7"
+                >
+                  {selectedIds.size === filteredItems.length ? 'Deselect All' : 'Select All'}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDeleteSelected}
+                  disabled={selectedIds.size === 0}
+                  className="text-xs h-7"
+                >
+                  Delete ({selectedIds.size})
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={exitSelectMode}
+                  className="text-xs h-7"
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSelectMode(true)}
+                  className="text-xs h-7"
+                >
+                  Select
+                </Button>
+                <Settings onClearHistory={clearHistory} onCleanup={refresh} />
+              </>
+            )}
+          </div>
         </div>
         <Input
           ref={inputRef}
@@ -197,39 +290,51 @@ function App() {
                   index === selectedIndex
                     ? 'bg-accent'
                     : 'hover:bg-accent/50'
-                }`}
+                } ${selectedIds.has(item.id) ? 'bg-primary/10' : ''}`}
                 onClick={() => handleCopy(item)}
-                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseEnter={() => !isSelectMode && setSelectedIndex(index)}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    {renderPreview(item)}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {formatTime(item.updated_at)}
-                    </p>
+                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                    {isSelectMode && (
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={() => toggleSelection(item.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      {renderPreview(item)}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatTime(item.updated_at)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(item.id);
-                      }}
-                    >
-                      {item.is_favorite ? '★' : '☆'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteItem(item.id);
-                      }}
-                    >
-                      ✕
-                    </Button>
-                  </div>
+                  {!isSelectMode && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(item.id);
+                        }}
+                      >
+                        {item.is_favorite ? '★' : '☆'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteItem(item.id);
+                        }}
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 {copiedId === item.id && (
                   <p className="text-xs text-green-500 mt-1">Copied!</p>
@@ -243,7 +348,9 @@ function App() {
       {/* Footer */}
       <Separator />
       <div className="p-2 text-xs text-center text-muted-foreground">
-        {filteredItems.length} items · Click to copy · ↑↓ Navigate · Enter Copy · Esc Hide
+        {isSelectMode
+          ? `${selectedIds.size} selected · Click to toggle selection`
+          : `${filteredItems.length} items · Click to copy · ↑↓ Navigate · Enter Copy · Esc Hide`}
       </div>
 
       {/* Image Preview Dialog */}

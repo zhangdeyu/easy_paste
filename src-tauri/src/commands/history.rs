@@ -22,3 +22,29 @@ pub async fn get_favorites(
 pub async fn clear_history(db: State<'_, Arc<Database>>) -> Result<usize, String> {
     db.clear_all().map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn delete_batch(
+    db: State<'_, Arc<Database>>,
+    ids: Vec<String>,
+) -> Result<usize, String> {
+    db.delete_batch(&ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_expiry_days(db: State<'_, Arc<Database>>) -> Result<i64, String> {
+    db.get_expiry_days().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_expiry_days(
+    db: State<'_, Arc<Database>>,
+    days: i64,
+) -> Result<(), String> {
+    db.set_expiry_days(days).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn cleanup_expired(db: State<'_, Arc<Database>>) -> Result<usize, String> {
+    db.delete_expired().map_err(|e| e.to_string())
+}

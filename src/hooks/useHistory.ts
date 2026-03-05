@@ -63,6 +63,15 @@ export function useHistory(limit: number = 100) {
     }
   }, []);
 
+  const deleteBatch = useCallback(async (ids: string[]) => {
+    try {
+      await api.deleteBatch(ids);
+      setItems((prev) => prev.filter((item) => !ids.includes(item.id)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete items');
+    }
+  }, []);
+
   const addItem = useCallback((item: ClipboardItem) => {
     setItems((prev) => {
       // Check if item already exists to prevent duplicates
@@ -91,6 +100,7 @@ export function useHistory(limit: number = 100) {
     search,
     toggleFavorite,
     deleteItem,
+    deleteBatch,
     addItem,
     clearHistory,
     refresh: fetchItems,

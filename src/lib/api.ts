@@ -17,6 +17,10 @@ export async function deleteItem(id: string): Promise<void> {
   return invoke('delete_item', { id });
 }
 
+export async function deleteBatch(ids: string[]): Promise<number> {
+  return invoke<number>('delete_batch', { ids });
+}
+
 export async function toggleFavorite(id: string): Promise<void> {
   return invoke('toggle_favorite', { id });
 }
@@ -35,4 +39,16 @@ export async function getFavorites(limit: number = 50): Promise<ClipboardItem[]>
 
 export async function clearHistory(): Promise<number> {
   return invoke<number>('clear_history');
+}
+
+export async function getExpiryDays(): Promise<number> {
+  return invoke<number>('get_expiry_days');
+}
+
+export async function setExpiryDays(days: number): Promise<void> {
+  return invoke('set_expiry_days', { days });
+}
+
+export async function cleanupExpired(): Promise<number> {
+  return invoke<number>('cleanup_expired');
 }

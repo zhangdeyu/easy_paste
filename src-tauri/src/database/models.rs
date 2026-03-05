@@ -5,6 +5,9 @@ use std::path::Path;
 use std::sync::Mutex;
 use thiserror::Error;
 
+/// Default expiry days for non-favorite items
+pub const DEFAULT_EXPIRY_DAYS: i64 = 30;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardItem {
     pub id: String,
@@ -112,9 +115,79 @@ impl Database {
             [],
         ).ok();
 
+        // Create settings table for storing app configuration
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Insert default expiry days if not exists
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('expiry_days', ?1)",
+            params![DEFAULT_EXPIRY_DAYS.to_string()],
+        )?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// Get expiry days setting
+    pub fn get_expiry_days(&self) -> Result<i64, DatabaseError> {
+        let conn = self.conn.lock().unwrap();
+        let value: String = conn.query_row(
+            "SELECT value FROM settings WHERE key = 'expiry_days'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(value.parse().unwrap_or(DEFAULT_EXPIRY_DAYS))
+    }
+
+    /// Set expiry days setting
+    pub fn set_expiry_days(&self, days: i64) -> Result<(), DatabaseError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('expiry_days', ?1)",
+            params![days.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Delete expired items (non-favorite only)
+    /// Returns the number of deleted items
+    pub fn delete_expired(&self) -> Result<usize, DatabaseError> {
+        // Get expiry days first (this acquires and releases the lock)
+        let expiry_days = self.get_expiry_days()?;
+        let expiry_timestamp = Utc::now().timestamp() - (expiry_days * 24 * 60 * 60);
+
+        // Then acquire lock for delete operation
+        let conn = self.conn.lock().unwrap();
+        let rows_deleted = conn.execute(
+            "DELETE FROM clipboard_items WHERE is_favorite = 0 AND updated_at < ?1",
+            params![expiry_timestamp],
+        )?;
+        Ok(rows_deleted)
+    }
+
+    /// Delete multiple items by IDs
+    /// Returns the number of deleted items
+    pub fn delete_batch(&self, ids: &[String]) -> Result<usize, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "DELETE FROM clipboard_items WHERE id IN ({})",
+            placeholders.join(",")
+        );
+
+        let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows_deleted = conn.execute(&sql, params.as_slice())?;
+        Ok(rows_deleted)
     }
 
     /// Insert or update clipboard item based on content
