@@ -202,7 +202,7 @@ function App() {
                   onClick={toggleSelectAll}
                   className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground"
                 >
-                  {selectedIds.size === filteredItems.length ? 'Deselect' : 'Select all'}
+                  {selectedIds.size === filteredItems.length ? 'Unselect all' : 'Select all'}
                 </Button>
                 <Button
                   variant="ghost"
@@ -275,15 +275,15 @@ function App() {
               : 'No matching items'}
           </div>
         ) : (
-          <div className="space-y-1 pb-4" ref={listRef}>
+          <div className="space-y-1.5 pb-4" ref={listRef}>
             {filteredItems.map((item, index) => (
               <div
                 key={item.id}
                 className={`group relative px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                  index === selectedIndex
+                  index === selectedIndex && !isSelectMode
                     ? 'bg-muted'
                     : 'hover:bg-muted/60'
-                } ${selectedIds.has(item.id) ? 'bg-primary/5 ring-1 ring-primary/20' : ''}`}
+                } ${selectedIds.has(item.id) ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
                 onClick={() => handleCopy(item)}
                 onMouseEnter={() => !isSelectMode && setSelectedIndex(index)}
               >
