@@ -279,11 +279,13 @@ function App() {
             {filteredItems.map((item, index) => (
               <div
                 key={item.id}
-                className={`group relative px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                  index === selectedIndex && !isSelectMode
-                    ? 'bg-muted'
-                    : 'hover:bg-muted/60'
-                } ${selectedIds.has(item.id) ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
+                className={`group relative px-3 py-2.5 rounded-lg cursor-pointer transition-colors border ${
+                  selectedIds.has(item.id)
+                    ? 'bg-primary/10 border-primary/30'
+                    : index === selectedIndex && !isSelectMode
+                      ? 'bg-muted border-border'
+                      : 'border-border hover:bg-muted/60'
+                }`}
                 onClick={() => handleCopy(item)}
                 onMouseEnter={() => !isSelectMode && setSelectedIndex(index)}
               >
