@@ -173,7 +173,9 @@ function App() {
           <img
             src={`data:image/png;base64,${item.image_data}`}
             alt="Clipboard image"
-            className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+            width={48}
+            height={48}
+            className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity motion-reduce:transition-none"
             onClick={(e) => {
               e.stopPropagation();
               setPreviewImage(item.image_data!);
@@ -238,9 +240,11 @@ function App() {
         </div>
         <Input
           ref={inputRef}
-          placeholder="Search clipboard history..."
+          placeholder="Search clipboard history…"
           value={searchQuery}
           onChange={(e) => handleSearch(e.target.value)}
+          name="search"
+          autoComplete="off"
         />
         {/* Filter buttons */}
         <div className="flex gap-1 mt-2">
@@ -274,7 +278,7 @@ function App() {
       {/* Content */}
       <ScrollArea className="flex-1">
         {isLoading ? (
-          <div className="p-4 text-center text-muted-foreground">Loading...</div>
+          <div className="p-4 text-center text-muted-foreground">Loading…</div>
         ) : filteredItems.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground">
             {items.length === 0
@@ -312,7 +316,7 @@ function App() {
                     </div>
                   </div>
                   {!isSelectMode && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity motion-reduce:transition-none">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -320,6 +324,7 @@ function App() {
                           e.stopPropagation();
                           toggleFavorite(item.id);
                         }}
+                        aria-label={item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                       >
                         {item.is_favorite ? '★' : '☆'}
                       </Button>
@@ -330,6 +335,7 @@ function App() {
                           e.stopPropagation();
                           deleteItem(item.id);
                         }}
+                        aria-label="Delete item"
                       >
                         ✕
                       </Button>
@@ -337,7 +343,7 @@ function App() {
                   )}
                 </div>
                 {copiedId === item.id && (
-                  <p className="text-xs text-green-500 mt-1">Copied!</p>
+                  <p className="text-xs text-green-500 mt-1" aria-live="polite">Copied!</p>
                 )}
               </div>
             ))}
@@ -360,6 +366,8 @@ function App() {
             <img
               src={`data:image/png;base64,${previewImage}`}
               alt="Preview"
+              width={800}
+              height={600}
               className="w-full h-full object-contain"
             />
           )}

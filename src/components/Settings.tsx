@@ -122,8 +122,8 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <SettingsIcon className="h-4 w-4" />
+        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Open settings">
+          <SettingsIcon className="h-4 w-4" aria-hidden="true" />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
@@ -146,7 +146,7 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
                 onClick={toggleAutostart}
                 disabled={isLoadingAutostart}
               >
-                {isLoadingAutostart ? '...' : autostartEnabled ? 'On' : 'Off'}
+                {isLoadingAutostart ? '…' : autostartEnabled ? 'On' : 'Off'}
               </Button>
             </div>
 
@@ -154,20 +154,23 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
 
             {/* Expiry Days */}
             <div className="flex items-center justify-between">
-              <div>
+              <label htmlFor="expiry-days" className="cursor-pointer">
                 <p className="text-sm font-medium">History Expiry</p>
                 <p className="text-xs text-muted-foreground">
                   Non-favorite items expire after {expiryDays} days
                 </p>
-              </div>
+              </label>
               <div className="flex items-center gap-2">
                 <input
+                  id="expiry-days"
                   type="number"
                   min={1}
                   max={365}
                   value={expiryDays}
                   onChange={(e) => handleExpiryDaysChange(parseInt(e.target.value) || 30)}
                   disabled={isLoadingExpiry}
+                  name="expiry-days"
+                  autoComplete="off"
                   className="w-16 h-8 text-center text-sm border rounded px-1"
                 />
                 <span className="text-xs text-muted-foreground">days</span>
@@ -190,7 +193,7 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
                 onClick={handleCleanupExpired}
                 disabled={isCleaningUp}
               >
-                {isCleaningUp ? 'Cleaning...' : 'Cleanup'}
+                {isCleaningUp ? 'Cleaning…' : 'Cleanup'}
               </Button>
             </div>
             {cleanupMessage && (
@@ -240,7 +243,7 @@ export function Settings({ onClearHistory, onCleanup }: SettingsProps) {
                     onClick={handleConfirmClear}
                     disabled={isClearing}
                   >
-                    {isClearing ? 'Clearing...' : 'Confirm'}
+                    {isClearing ? 'Clearing…' : 'Confirm'}
                   </Button>
                 </div>
               </div>
